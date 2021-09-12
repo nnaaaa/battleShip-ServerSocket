@@ -16,34 +16,40 @@ const io = require('socket.io')(server, {
     }
 })
 
-let rooms = []
-Room.find({}).then((data) => rooms = data)
-
 
 io.on('connection', socket => {
     const db = mongoose.connection
-    console.log(rooms.map(room=>room.id))
+    let rooms = []
+    Room.find({}).then((data) => rooms = data)
 
     db.once("open", () => {
         const roomsStream = db.collection('rooms').watch()
         roomsStream.on("change", (change) => {
-
             switch (change.operationType) {
                 case 'insert':
-                    rooms.push(change.fullDocument)
+                    const newRoom = change.fullDocument
+                    rooms.push(newRoom)
                     io.sockets.emit(`server-sendData/rooms-not-start`, rooms)
                     io.sockets.emit(`server-sendData/rooms-starting`, rooms)
+                    socket.emit(`server-sendData/room/${newRoom.id}`,newRoom)
                     break
                 case 'delete':
-                    rooms = rooms.map(room => room._id !== change.documentKey._id)
+                    break
+                case 'update':
+                    rooms = rooms.map(room => {
+                        if (room._id.equals(change.documentKey._id))
+                            return {...room,...change.updateDescription.updatedFields}
+                        return room
+                    })
                     io.sockets.emit(`server-sendData/rooms-not-start`, rooms)
                     io.sockets.emit(`server-sendData/rooms-starting`, rooms)
+                    const findRoomUpdated = rooms.find(room =>
+                        room._id.equals(change.documentKey._id))
+                    io.sockets.emit(`server-sendData/room/${findRoomUpdated.id}`,findRoomUpdated)
                     break
                 default:
                     break
             }
-
-            console.log(rooms.map(room=>room.id))
         })
     })
 
@@ -60,20 +66,28 @@ io.on('connection', socket => {
                     rooms.filter(room => room.isStarting))
                 break
             case 'room':
-                console.log({rooms:rooms.map(room=>room.id),target})
                 socket.emit(`server-sendData/${collection}/${target}`,
                     rooms.find(room => room.id === target))
             default:
                 break
         }
+        
     })
 
 
     socket.on("add-room", async roomInfo => {
         const room = new Room(roomInfo)
         await room.save()
-        socket.emit(`server-sendData/${collection}/${target}`,
-            rooms.find(room => room.id === target))
+        
+    })
+    socket.on("update-room", async (target, newFields) => {
+        await Room.updateOne({ id: target }, newFields)
+    })
+    socket.on("delete-room", async target => {
+        rooms = rooms.filter(room => room.id !== target)
+        io.sockets.emit(`server-sendData/rooms-not-start`, rooms)
+        io.sockets.emit(`server-sendData/rooms-starting`, rooms)
+        await Room.deleteOne({ id: target })
     })
 })
 
