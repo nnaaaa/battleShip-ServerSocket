@@ -34,6 +34,12 @@ io.on('connection', socket => {
                     socket.emit(`server-sendData/room/${newRoom.id}`,newRoom)
                     break
                 case 'delete':
+                    rooms = rooms.filter(room => {
+                        console.log(room._id.equals(change.documentKey._id))
+                        return room._id.equals(change.documentKey._id)
+                    })
+                    io.sockets.emit(`server-sendData/rooms-not-start`, rooms)
+                    io.sockets.emit(`server-sendData/rooms-starting`, rooms)
                     break
                 case 'update':
                     rooms = rooms.map(room => {
@@ -78,15 +84,11 @@ io.on('connection', socket => {
     socket.on("add-room", async roomInfo => {
         const room = new Room(roomInfo)
         await room.save()
-        
     })
     socket.on("update-room", async (target, newFields) => {
         await Room.updateOne({ id: target }, newFields)
     })
     socket.on("delete-room", async target => {
-        rooms = rooms.filter(room => room.id !== target)
-        io.sockets.emit(`server-sendData/rooms-not-start`, rooms)
-        io.sockets.emit(`server-sendData/rooms-starting`, rooms)
         await Room.deleteOne({ id: target })
     })
 })
